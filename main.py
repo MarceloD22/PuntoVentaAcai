@@ -35,9 +35,6 @@ crear_usuario_inicial()
 
 class App(ctk.CTk):
 
-    def centrar_texto(self, texto, ancho=31):
-        return texto.center(ancho)
-
     def __init__(self):
         super().__init__()
 
@@ -52,6 +49,9 @@ class App(ctk.CTk):
         self.usuario_actual = None
         self.nombre_usuario_actual = ""
         self.rol_actual = ""
+
+        # carrito temporal de ventas
+        self.carrito = []
 
         self.crear_productos_iniciales()
         self.crear_interfaz()
@@ -158,9 +158,10 @@ class App(ctk.CTk):
 
         btn_guardar = ctk.CTkButton(
             frame_form,
-            text="Registrar Venta",
-            command=self.registrar_venta
+            text="Agregar al carrito",
+            command=self.agregar_al_carrito
         )
+        
         btn_guardar.grid(row=0, column=6, padx=10, pady=10)
 
         self.frame_fecha = ctk.CTkFrame(self)
@@ -521,7 +522,103 @@ class App(ctk.CTk):
         messagebox.showinfo("Correcto", "Venta registrada.")
         self.mostrar_ticket(producto_detallado, cantidad, precio_final_unitario, total)
 
-  
+    def agregar_al_carrito(self):
+        # ==============================
+        # 1. LEER CAMPOS
+        # ==============================
+        producto = self.combo_productos.get()
+        cantidad_texto = self.entry_cantidad.get().strip()
+
+        if self.entry_extras.winfo_viewable():
+            extras_texto = self.entry_extras.get().strip()
+        else:
+            extras_texto = "0"
+
+        # ==============================
+        # 2. VALIDACIONES
+        # ==============================
+        if not cantidad_texto:
+            messagebox.showwarning("Aviso", "Ingresa una cantidad.")
+            return
+
+        if not extras_texto:
+            extras_texto = "0"
+
+        try:
+            cantidad = int(cantidad_texto)
+            extras = int(extras_texto)
+        except ValueError:
+            messagebox.showerror("Error", "Cantidad y extras deben ser números enteros.")
+            return
+
+        if cantidad <= 0:
+            messagebox.showerror("Error", "La cantidad debe ser mayor a 0.")
+            return
+
+        if extras < 0:
+            messagebox.showerror("Error", "Los extras no pueden ser negativos.")
+            return
+
+        # ==============================
+        # 3. OBTENER PRECIO BASE
+        # ==============================
+        productos = obtener_productos()
+        precio_base = None
+
+        for p in productos:
+            if p[1] == producto:
+                precio_base = p[2]
+                break
+
+        if precio_base is None:
+            messagebox.showerror("Error", "Producto no encontrado.")
+            return
+
+        # ==============================
+        # 4. CALCULAR EXTRAS
+        # ==============================
+        producto_lower = producto.lower()
+        extra_unitario = 0
+        detalle_extra = ""
+
+        if "helado" in producto_lower:
+            if extras == 1:
+                extra_unitario = 3000
+            elif extras == 2:
+                extra_unitario = 5000
+            elif extras == 3:
+                extra_unitario = 7000
+            elif extras > 3:
+                messagebox.showerror("Error", "Máximo 3 bochas extra.")
+                return
+
+            if extras > 0:
+                detalle_extra = f" + {extras} bocha(s)"
+        else:
+            extra_unitario = extras * 3000
+            if extras > 0:
+                detalle_extra = f" + {extras} agregado(s)"
+
+        # ==============================
+        # 5. CALCULAR TOTAL
+        # ==============================
+        precio_final = precio_base + extra_unitario
+        total = cantidad * precio_final
+
+        producto_detallado = producto + detalle_extra
+
+        # ==============================
+        # 6. AGREGAR AL CARRITO
+        # ==============================
+        self.carrito.append((producto_detallado, cantidad, precio_final, total))
+
+        messagebox.showinfo("Carrito", "Producto agregado al carrito.")
+
+        # ==============================
+        # 7. LIMPIAR CAMPOS
+        # ==============================
+        self.entry_cantidad.delete(0, "end")
+        self.entry_extras.delete(0, "end")        
 
     def mostrar_ticket(self, producto, cantidad, precio, total):
         fecha = self.fecha_hoy
@@ -531,9 +628,9 @@ class App(ctk.CTk):
         total_f = f"{total:,.0f}".replace(",", ".")
 
         texto = f"""
-{self.centrar_texto("HELADOS Y ACAI XYZ")}
-{self.centrar_texto("Tel: 0984-000000")}
-{self.centrar_texto("Cnel. Oviedo - Paraguay")}
+HELADOS Y ACAI XYZ
+Tel: 0984-000000
+Cnel. Oviedo - Paraguay
 
 --------------------------------------
 Fecha: {fecha}
@@ -550,10 +647,9 @@ Precio unitario: Gs. {precio_f}
 TOTAL: Gs. {total_f}
 --------------------------------------
 
-{self.centrar_texto("Gracias por su preferencia")}
-{self.centrar_texto("Siguenos en redes sociales")}
+Gracias por su preferencia
+Siguenos en redes sociales
 """
-
         texto_limpio = "\n".join(line.rstrip() for line in texto.strip().splitlines())
         cantidad_lineas = len(texto_limpio.splitlines())
 
@@ -591,37 +687,93 @@ TOTAL: Gs. {total_f}
 
     def imprimir_ticket(self, texto_ticket):
         try:
-            # Obtiene el nombre de la impresora seleccionada en tu app
+            # ==============================
+            # 1. OBTENER IMPRESORA ACTUAL
+            # ==============================
             nombre_impresora = self.obtener_impresora_seleccionada()
 
+            # Validación básica
             if not nombre_impresora or nombre_impresora == "Sin impresoras disponibles":
                 messagebox.showerror("Error", "No hay una impresora válida seleccionada.")
                 return
 
-            # Comandos ESC/POS
+            # ==============================
+            # 2. COMANDOS ESC/POS
+            # ==============================
             ESC = b'\x1b'
             GS = b'\x1d'
 
-            INIT = ESC + b'@'        # Inicializa impresora
-            CUT = GS + b'V\x00'      # Corte automático (si no funciona, cambiar abajo)
+            # Inicializa impresora
+            INIT = ESC + b'@'
 
-            # Normalizar saltos de línea
-            texto_ticket = texto_ticket.replace("\r\n", "\n").replace("\r", "\n")
+            # Alineaciones
+            ALIGN_LEFT = ESC + b'a' + b'\x00'
+            ALIGN_CENTER = ESC + b'a' + b'\x01'
 
-            # Espacio arriba y abajo para que salga completo
-            contenido = "\n" + texto_ticket + "\n\n\n\n\n\n\n"
+            # Corte de papel
+            CUT = GS + b'V\x00'
 
-            # Convertir a bytes con codificación correcta
-            datos = INIT + contenido.encode("cp850", errors="replace") + CUT
+            # ==============================
+            # 3. PREPARAR TEXTO
+            # ==============================
+            lineas = texto_ticket.replace("\r\n", "\n").replace("\r", "\n").splitlines()
 
+            # ==============================
+            # 4. ENCABEZADO Y PIE
+            # ==============================
+            encabezado = [
+                "HELADOS Y ACAI XYZ",
+                "Tel: 0984-000000",
+                "Cnel. Oviedo - Paraguay"
+            ]
+
+            despedida = [
+                "Gracias por su preferencia",
+                "Siguenos en redes sociales"
+            ]
+
+            # ==============================
+            # 5. CUERPO (QUITAR DUPLICADOS)
+            # ==============================
+            cuerpo = []
+            for linea in lineas:
+                if linea.strip() in encabezado or linea.strip() in despedida:
+                    continue
+                cuerpo.append(linea)
+
+            # ==============================
+            # 6. ARMAR DATOS PARA IMPRESIÓN
+            # ==============================
+            datos = INIT
+
+            # --- ENCABEZADO CENTRADO ---
+            datos += ALIGN_CENTER
+            datos += ("\n".join(encabezado) + "\n\n").encode("cp850", errors="replace")
+
+            # --- CUERPO A LA IZQUIERDA ---
+            datos += ALIGN_LEFT
+            datos += ("\n".join(cuerpo) + "\n").encode("cp850", errors="replace")
+
+            # --- PIE CENTRADO ---
+            datos += ALIGN_CENTER
+
+            # 🔧 Ajusta este valor para subir o bajar el corte
+            saltos_finales = 8
+
+            datos += ("\n".join(despedida) + "\n" * saltos_finales).encode("cp850", errors="replace")
+
+            # --- CORTE ---
+            datos += CUT
+
+            # ==============================
+            # 7. ENVIAR A IMPRESORA
+            # ==============================
             impresora = win32print.OpenPrinter(nombre_impresora)
 
             try:
                 win32print.StartDocPrinter(impresora, 1, ("Ticket", None, "RAW"))
                 win32print.StartPagePrinter(impresora)
-
                 win32print.WritePrinter(impresora, datos)
-
                 win32print.EndPagePrinter(impresora)
                 win32print.EndDocPrinter(impresora)
             finally:
