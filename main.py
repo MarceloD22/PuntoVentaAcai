@@ -34,6 +34,10 @@ crear_usuario_inicial()
 
 
 class App(ctk.CTk):
+
+    def centrar_texto(self, texto, ancho=31):
+        return texto.center(ancho)
+
     def __init__(self):
         super().__init__()
 
@@ -102,14 +106,6 @@ class App(ctk.CTk):
             command=self.abrir_resumen_semanal
         )
         self.btn_semanal.pack(side="left", padx=5)
-
-        self.btn_usuarios = ctk.CTkButton(
-            frame_botones,
-            text="Usuarios",
-            width=120,
-            command=self.abrir_ventana_usuarios
-        )
-        self.btn_usuarios.pack(side="left", padx=5)
 
         self.btn_usuarios = ctk.CTkButton(
             frame_botones,
@@ -525,6 +521,8 @@ class App(ctk.CTk):
         messagebox.showinfo("Correcto", "Venta registrada.")
         self.mostrar_ticket(producto_detallado, cantidad, precio_final_unitario, total)
 
+  
+
     def mostrar_ticket(self, producto, cantidad, precio, total):
         fecha = self.fecha_hoy
         hora = datetime.now().strftime("%H:%M:%S")
@@ -533,26 +531,28 @@ class App(ctk.CTk):
         total_f = f"{total:,.0f}".replace(",", ".")
 
         texto = f"""
-                HELADOS Y AÇAÍ XYZ
-             Tel: 0984-000000
-            Cnel. Oviedo - Paraguay
+{self.centrar_texto("HELADOS Y ACAI XYZ")}
+{self.centrar_texto("Tel: 0984-000000")}
+{self.centrar_texto("Cnel. Oviedo - Paraguay")}
 
-         --------------------------------
-            Fecha: {fecha}
-            Hora: {hora}
-         Cajero: {self.nombre_usuario_actual}
+--------------------------------------
+Fecha: {fecha}
+Hora: {hora}
+Cajero: {self.nombre_usuario_actual}
+--------------------------------------
 
-         --------------------------------
-         Detalle:
-         {producto}
-         Cantidad: {cantidad}
-         Precio unitario: Gs. {precio_f}
-         --------------------------------
-         TOTAL: Gs. {total_f}
-         --------------------------------
+Detalle:
+{producto}
+Cantidad: {cantidad}
+Precio unitario: Gs. {precio_f}
 
-         ¡Gracias por su preferencia!
-            Síguenos en redes sociales:"""
+--------------------------------------
+TOTAL: Gs. {total_f}
+--------------------------------------
+
+{self.centrar_texto("Gracias por su preferencia")}
+{self.centrar_texto("Siguenos en redes sociales")}
+"""
 
         texto_limpio = "\n".join(line.rstrip() for line in texto.strip().splitlines())
         cantidad_lineas = len(texto_limpio.splitlines())
@@ -591,20 +591,36 @@ class App(ctk.CTk):
 
     def imprimir_ticket(self, texto_ticket):
         try:
+            # Obtiene el nombre de la impresora seleccionada en tu app
             nombre_impresora = self.obtener_impresora_seleccionada()
 
             if not nombre_impresora or nombre_impresora == "Sin impresoras disponibles":
                 messagebox.showerror("Error", "No hay una impresora válida seleccionada.")
                 return
 
+            # Comandos ESC/POS
+            ESC = b'\x1b'
+            GS = b'\x1d'
+
+            INIT = ESC + b'@'        # Inicializa impresora
+            CUT = GS + b'V\x00'      # Corte automático (si no funciona, cambiar abajo)
+
+            # Normalizar saltos de línea
+            texto_ticket = texto_ticket.replace("\r\n", "\n").replace("\r", "\n")
+
+            # Espacio arriba y abajo para que salga completo
+            contenido = "\n" + texto_ticket + "\n\n\n\n\n\n\n"
+
+            # Convertir a bytes con codificación correcta
+            datos = INIT + contenido.encode("cp850", errors="replace") + CUT
+
             impresora = win32print.OpenPrinter(nombre_impresora)
 
             try:
-                job = win32print.StartDocPrinter(impresora, 1, ("Ticket", None, "RAW"))
+                win32print.StartDocPrinter(impresora, 1, ("Ticket", None, "RAW"))
                 win32print.StartPagePrinter(impresora)
 
-                win32print.WritePrinter(impresora, texto_ticket.encode("utf-8", errors="replace"))
-                #win32print.WritePrinter(impresora, texto_ticket.encode("cp850", errors="replace"))# #Por posibles errores de caracteres#
+                win32print.WritePrinter(impresora, datos)
 
                 win32print.EndPagePrinter(impresora)
                 win32print.EndDocPrinter(impresora)
@@ -612,6 +628,7 @@ class App(ctk.CTk):
                 win32print.ClosePrinter(impresora)
 
             messagebox.showinfo("Impresión", f"Ticket enviado a: {nombre_impresora}")
+
         except Exception as e:
             messagebox.showerror("Error de impresión", f"No se pudo imprimir el ticket.\n\n{e}")
 
